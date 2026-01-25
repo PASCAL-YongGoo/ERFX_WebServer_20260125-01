@@ -47,6 +47,11 @@ public interface IInspectionService
     /// 통계 조회
     /// </summary>
     Task<InspectionStatistics> GetStatisticsAsync();
+
+    /// <summary>
+    /// 전체 검사 결과 수 조회 (페이징용)
+    /// </summary>
+    Task<int> GetTotalCountAsync();
 }
 
 /// <summary>
@@ -142,5 +147,13 @@ public class InspectionService : IInspectionService
             TodayNgCount = todayNgCount,
             OkRate = okRate
         };
+    }
+
+    /// <summary>
+    /// 전체 검사 결과 수 조회 (페이징용)
+    /// </summary>
+    public async Task<int> GetTotalCountAsync()
+    {
+        return await _context.Inspections.CountAsync();
     }
 }

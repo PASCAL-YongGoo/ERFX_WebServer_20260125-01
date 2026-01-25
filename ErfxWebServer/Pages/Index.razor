@@ -1,0 +1,92 @@
+@page "/"
+@namespace ErfxWebServer.Pages
+@inject IInspectionService InspectionService
+
+<PageTitle>ERFX Dashboard</PageTitle>
+
+<h1 class="page-title">Dashboard</h1>
+
+@if (isLoading)
+{
+    <div class="loading-container">
+        <div class="loading-spinner"></div>
+        <span>Loading statistics...</span>
+    </div>
+}
+else if (errorMessage != null)
+{
+    <div class="error-container">
+        <div class="error-title">Error Loading Data</div>
+        <div>@errorMessage</div>
+    </div>
+}
+else if (stats != null)
+{
+    <div class="stats-container">
+        <div class="stat-card">
+            <div class="label">Total Inspections</div>
+            <div class="value">@stats.TotalCount.ToString("N0")</div>
+            <div class="subtext">All time</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="label">Today's Inspections</div>
+            <div class="value">@stats.TodayCount.ToString("N0")</div>
+            <div class="subtext">@DateTime.Now.ToString("yyyy-MM-dd")</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="label">Today OK</div>
+            <div class="value success">@stats.TodayOkCount.ToString("N0")</div>
+            <div class="subtext">Passed inspections</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="label">Today NG</div>
+            <div class="value error">@stats.TodayNgCount.ToString("N0")</div>
+            <div class="subtext">Failed inspections</div>
+        </div>
+        
+        <div class="stat-card">
+            <div class="label">OK Rate</div>
+            <div class="value success">@stats.OkRate.ToString("F1")%</div>
+            <div class="subtext">Overall success rate</div>
+        </div>
+    </div>
+}
+else
+{
+    <div class="empty-state">
+        <div class="icon">📊</div>
+        <div class="message">No inspection data available</div>
+    </div>
+}
+
+@code {
+    private InspectionStatistics? stats;
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStatistics();
+    }
+
+    private async Task LoadStatistics()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            stats = await InspectionService.GetStatisticsAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load statistics: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

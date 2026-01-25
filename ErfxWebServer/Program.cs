@@ -1,4 +1,5 @@
 using ErfxWebServer.Data;
+using ErfxWebServer.Hubs;
 using ErfxWebServer.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,6 +13,10 @@ builder.Services.AddDbContext<InspectionDbContext>(options =>
 
 // Register services
 builder.Services.AddScoped<IInspectionService, InspectionService>();
+
+// Add MQTT client as hosted service
+builder.Services.AddSingleton<MqttClientService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<MqttClientService>());
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -32,6 +37,9 @@ builder.Services.AddOpenApi();
 builder.Services.AddRazorPages();
 builder.Services.AddServerSideBlazor();
 
+// Add SignalR
+builder.Services.AddSignalR();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -49,6 +57,7 @@ app.UseCors();
 app.UseAuthorization();
 
 app.MapBlazorHub();
+app.MapHub<InspectionHub>("/inspectionhub");
 app.MapFallbackToPage("/_Host");
 
 app.MapControllers();

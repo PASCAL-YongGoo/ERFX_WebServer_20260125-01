@@ -1,0 +1,352 @@
+@page "/live"
+@namespace ErfxWebServer.Pages
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager NavigationManager
+@inject MqttClientService MqttService
+@implements IAsyncDisposable
+
+<PageTitle>Live Monitor - ERFX</PageTitle>
+
+<h1 class="page-title">Live Monitor</h1>
+
+<!-- 연결 상태 표시 -->
+<div class="connection-status @(isConnected ? "connected" : "disconnected")">
+    <span class="status-dot"></span>
+    <span>MQTT: @(isConnected ? "Connected" : "Disconnected")</span>
+</div>
+
+<!-- 최근 검사 결과 (큰 카드) -->
+@if (latestResult != null)
+{
+    <div class="latest-result @(latestResult.IsOk ? "result-ok-card" : "result-ng-card")">
+        <div class="result-header">
+            <span class="result-badge-large @(latestResult.IsOk ? "result-ok" : "result-ng")">
+                @latestResult.Result
+            </span>
+            <span class="result-time">@latestResult.InspectedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+        </div>
+        
+        <div class="result-details">
+            <div class="detail-row">
+                <span class="detail-label">Invoice</span>
+                <span class="detail-value">@(latestResult.InvoiceNumber ?? "-")</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Expected</span>
+                <span class="detail-value">@latestResult.ExpectedTotal</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Actual</span>
+                <span class="detail-value">@latestResult.ActualTotal</span>
+            </div>
+            <div class="detail-row">
+                <span class="detail-label">Elapsed</span>
+                <span class="detail-value">@latestResult.ElapsedMs ms</span>
+            </div>
+        </div>
+
+        @if (latestResult.Differences?.Any() == true)
+        {
+            <div class="differences-section">
+                <h4>Differences</h4>
+                <table class="differences-table">
+                    <thead>
+                        <tr>
+                            <th>SKU</th>
+                            <th>Expected</th>
+                            <th>Actual</th>
+                            <th>Diff</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var diff in latestResult.Differences)
+                        {
+                            <tr>
+                                <td>@diff.Sku</td>
+                                <td>@diff.Expected</td>
+                                <td>@diff.Actual</td>
+                                <td class="@(diff.Difference > 0 ? "diff-over" : "diff-under")">
+                                    @(diff.Difference > 0 ? "+" : "")@diff.Difference
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="waiting-message">
+        <div class="waiting-icon">📡</div>
+        <div>Waiting for inspection results...</div>
+    </div>
+}
+
+<!-- 최근 검사 이력 -->
+<h2 class="section-title">Recent Results</h2>
+<div class="history-list">
+    @if (recentResults.Count == 0)
+    {
+        <div class="empty-state">
+            <div class="message">No results yet</div>
+        </div>
+    }
+    else
+    {
+        @foreach (var result in recentResults)
+        {
+            <div class="history-item @(result.IsOk ? "history-ok" : "history-ng")">
+                <span class="history-badge @(result.IsOk ? "result-ok" : "result-ng")">@result.Result</span>
+                <span class="history-invoice">@(result.InvoiceNumber ?? "-")</span>
+                <span class="history-count">@result.ExpectedTotal / @result.ActualTotal</span>
+                <span class="history-time">@result.InspectedAtUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+    private BoxInspectionResult? latestResult;
+    private List<BoxInspectionResult> recentResults = new();
+    private bool isConnected;
+    private const int MaxHistoryCount = 20;
+
+    protected override async Task OnInitializedAsync()
+    {
+        isConnected = MqttService.IsConnected;
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(NavigationManager.ToAbsoluteUri("/inspectionhub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.On<BoxInspectionResult>("InspectionResult", (result) =>
+        {
+            latestResult = result;
+            
+            // 이력에 추가 (최신 것이 위에)
+            recentResults.Insert(0, result);
+            if (recentResults.Count > MaxHistoryCount)
+            {
+                recentResults.RemoveAt(recentResults.Count - 1);
+            }
+            
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<bool>("MqttConnected", (connected) =>
+        {
+            isConnected = connected;
+            InvokeAsync(StateHasChanged);
+        });
+
+        await hubConnection.StartAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection != null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
+
+<style>
+    .connection-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 13px;
+        margin-bottom: 24px;
+    }
+    
+    .connection-status.connected {
+        background-color: rgba(16, 185, 129, 0.1);
+        color: var(--success);
+    }
+    
+    .connection-status.disconnected {
+        background-color: rgba(239, 68, 68, 0.1);
+        color: var(--error);
+    }
+    
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: currentColor;
+        animation: pulse 2s infinite;
+    }
+    
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .latest-result {
+        background-color: var(--bg-card);
+        border-radius: var(--border-radius);
+        padding: 24px;
+        margin-bottom: 32px;
+        border-left: 4px solid;
+    }
+    
+    .result-ok-card {
+        border-left-color: var(--success);
+    }
+    
+    .result-ng-card {
+        border-left-color: var(--error);
+    }
+    
+    .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+    
+    .result-badge-large {
+        font-size: 24px;
+        padding: 8px 24px;
+    }
+    
+    .result-time {
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+    
+    .result-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    
+    .detail-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    
+    .detail-label {
+        font-size: 12px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+    }
+    
+    .detail-value {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+    
+    .differences-section {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--border-color);
+    }
+    
+    .differences-section h4 {
+        margin: 0 0 12px 0;
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+    
+    .differences-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    
+    .differences-table th,
+    .differences-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .differences-table th {
+        font-size: 11px;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+    }
+    
+    .diff-over {
+        color: var(--warning);
+    }
+    
+    .diff-under {
+        color: var(--error);
+    }
+    
+    .waiting-message {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+        background-color: var(--bg-card);
+        border-radius: var(--border-radius);
+        margin-bottom: 32px;
+    }
+    
+    .waiting-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        animation: pulse 2s infinite;
+    }
+    
+    .section-title {
+        font-size: 18px;
+        color: var(--text-secondary);
+        margin-bottom: 16px;
+    }
+    
+    .history-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .history-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        background-color: var(--bg-card);
+        border-radius: var(--border-radius);
+        border-left: 3px solid;
+    }
+    
+    .history-ok {
+        border-left-color: var(--success);
+    }
+    
+    .history-ng {
+        border-left-color: var(--error);
+    }
+    
+    .history-badge {
+        font-size: 11px;
+        padding: 2px 8px;
+    }
+    
+    .history-invoice {
+        flex: 1;
+        font-weight: 500;
+    }
+    
+    .history-count {
+        color: var(--text-secondary);
+        font-size: 13px;
+    }
+    
+    .history-time {
+        color: var(--text-muted);
+        font-size: 12px;
+    }
+</style>
