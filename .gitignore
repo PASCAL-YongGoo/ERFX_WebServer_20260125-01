@@ -25,3 +25,8 @@ package-lock.json
 .idea/
 *.swp
 *.swo
+
+# Sisyphus temporary files (keep plans/, exclude temporary notes)
+.sisyphus/notepads/
+.sisyphus/progress.txt
+.sisyphus/prd.json
