@@ -1,0 +1,27 @@
+# Build results
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# User-specific files
+*.user
+*.userprefs
+.DS_Store
+.vscode/settings.json
+.vscode/launch.json
+
+# Environment files
+appsettings.Development.json
+.env
+.env.local
+
+# Node modules (if using npm)
+node_modules/
+package-lock.json
+
+# IDE
+.idea/
+*.swp
+*.swo
