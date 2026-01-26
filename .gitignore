@@ -30,3 +30,11 @@ package-lock.json
 .sisyphus/notepads/
 .sisyphus/progress.txt
 .sisyphus/prd.json
+
+# Local settings (user-specific, do not commit)
+.claude/
+.omc/
+.opencode.json
+load-env.ps1
+run-*.bat
+nuget.exe
