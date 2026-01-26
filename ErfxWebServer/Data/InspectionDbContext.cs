@@ -80,7 +80,9 @@ public class InspectionDbContext : DbContext
             .HasColumnName("differences_json")
             .HasConversion(
                 v => JsonSerializer.Serialize(v),
-                v => JsonSerializer.Deserialize<List<SkuDifference>>(v, (JsonSerializerOptions?)null) ?? new List<SkuDifference>()
+                v => string.IsNullOrEmpty(v)
+                    ? new List<SkuDifference>()
+                    : JsonSerializer.Deserialize<List<SkuDifference>>(v, (JsonSerializerOptions?)null) ?? new List<SkuDifference>()
             )
             .HasColumnType("TEXT");
 
@@ -89,7 +91,9 @@ public class InspectionDbContext : DbContext
             .HasColumnName("expected_items_json")
             .HasConversion(
                 v => JsonSerializer.Serialize(v),
-                v => JsonSerializer.Deserialize<Dictionary<string, int>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, int>()
+                v => string.IsNullOrEmpty(v)
+                    ? new Dictionary<string, int>()
+                    : JsonSerializer.Deserialize<Dictionary<string, int>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, int>()
             )
             .HasColumnType("TEXT");
 
@@ -98,7 +102,9 @@ public class InspectionDbContext : DbContext
             .HasColumnName("actual_items_json")
             .HasConversion(
                 v => JsonSerializer.Serialize(v),
-                v => JsonSerializer.Deserialize<Dictionary<string, int>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, int>()
+                v => string.IsNullOrEmpty(v)
+                    ? new Dictionary<string, int>()
+                    : JsonSerializer.Deserialize<Dictionary<string, int>>(v, (JsonSerializerOptions?)null) ?? new Dictionary<string, int>()
             )
             .HasColumnType("TEXT");
 
@@ -107,7 +113,9 @@ public class InspectionDbContext : DbContext
             .HasColumnName("raw_epcs_json")
             .HasConversion(
                 v => JsonSerializer.Serialize(v),
-                v => JsonSerializer.Deserialize<List<EpcSkuPair>>(v, (JsonSerializerOptions?)null) ?? new List<EpcSkuPair>()
+                v => string.IsNullOrEmpty(v)
+                    ? new List<EpcSkuPair>()
+                    : JsonSerializer.Deserialize<List<EpcSkuPair>>(v, (JsonSerializerOptions?)null) ?? new List<EpcSkuPair>()
             )
             .HasColumnType("TEXT");
 
@@ -139,6 +147,10 @@ public class InspectionDbContext : DbContext
             .HasConversion<int>();
 
         // 인덱스
+        entity.HasIndex(e => e.CorrelationId)
+            .IsUnique()
+            .HasDatabaseName("idx_inspections_correlation_id");
+
         entity.HasIndex(e => e.InvoiceNumber)
             .HasDatabaseName("idx_inspections_invoice");
 
