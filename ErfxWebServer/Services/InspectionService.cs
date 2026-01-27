@@ -66,6 +66,13 @@ public interface IInspectionService
     /// <param name="correlationId">검사 식별자</param>
     /// <returns>존재 여부</returns>
     Task<bool> ExistsByCorrelationIdAsync(string correlationId);
+
+    /// <summary>
+    /// 테스트용 샘플 데이터 생성
+    /// </summary>
+    /// <param name="count">생성할 데이터 수</param>
+    /// <returns>생성된 데이터 수</returns>
+    Task<int> GenerateTestDataAsync(int count = 50);
 }
 
 /// <summary>
@@ -213,5 +220,84 @@ public class InspectionService : IInspectionService
 
         return await _context.Inspections
             .AnyAsync(x => x.CorrelationId == correlationId);
+    }
+
+    /// <summary>
+    /// 테스트용 샘플 데이터 생성
+    /// </summary>
+    public async Task<int> GenerateTestDataAsync(int count = 50)
+    {
+        var random = new Random();
+        var skus = new[] { "SKU-A001", "SKU-B002", "SKU-C003", "SKU-D004", "SKU-E005" };
+        var testData = new List<BoxInspectionResult>();
+
+        for (int i = 0; i < count; i++)
+        {
+            var isOk = random.NextDouble() > 0.15; // 85% OK rate
+            var expectedTotal = random.Next(5, 20);
+            var actualTotal = isOk ? expectedTotal : expectedTotal + random.Next(-3, 4);
+            var invoiceNumber = $"INV-{DateTime.Now:yyyyMMdd}-{random.Next(1000, 9999)}";
+
+            var expectedItems = new Dictionary<string, int>();
+            var actualItems = new Dictionary<string, int>();
+            var differences = new List<SkuDifference>();
+            var epcSkuPairs = new List<EpcSkuPair>();
+
+            // Generate SKU items
+            var usedSkus = skus.OrderBy(_ => random.Next()).Take(random.Next(2, 5)).ToList();
+            foreach (var sku in usedSkus)
+            {
+                var expected = random.Next(1, 5);
+                var actual = isOk ? expected : expected + random.Next(-1, 2);
+                if (actual < 0) actual = 0;
+
+                expectedItems[sku] = expected;
+                actualItems[sku] = actual;
+
+                if (expected != actual)
+                {
+                    differences.Add(new SkuDifference
+                    {
+                        Sku = sku,
+                        Expected = expected,
+                        Actual = actual
+                    });
+                }
+
+                // Generate EPC tags for actual items
+                for (int j = 0; j < actual; j++)
+                {
+                    epcSkuPairs.Add(new EpcSkuPair
+                    {
+                        Epc = $"E2{random.Next(10000000, 99999999):X8}{random.Next(10000000, 99999999):X8}",
+                        Sku = sku
+                    });
+                }
+            }
+
+            var result = new BoxInspectionResult
+            {
+                CorrelationId = Guid.NewGuid().ToString(),
+                InvoiceNumber = invoiceNumber,
+                BarcodeRaw = $"BC{random.Next(100000, 999999)}",
+                InspectedAtUtc = DateTime.UtcNow.AddMinutes(-random.Next(0, 1440)), // Random within last 24h
+                IsOk = isOk,
+                ExpectedTotal = expectedItems.Values.Sum(),
+                ActualTotal = actualItems.Values.Sum(),
+                ElapsedMs = random.Next(100, 2000),
+                ExpectedItems = expectedItems,
+                ActualItems = actualItems,
+                Differences = differences,
+                EpcSkuPairs = epcSkuPairs,
+                FailedEpcCount = isOk ? 0 : random.Next(0, 3)
+            };
+
+            testData.Add(result);
+        }
+
+        _context.Inspections.AddRange(testData);
+        await _context.SaveChangesAsync();
+
+        return testData.Count;
     }
 }

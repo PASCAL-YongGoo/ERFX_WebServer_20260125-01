@@ -4,7 +4,29 @@
 
 <PageTitle>ERFX Dashboard</PageTitle>
 
-<h1 class="page-title">Dashboard</h1>
+<div class="page-header">
+    <h1 class="page-title">Dashboard</h1>
+    <div class="page-actions">
+        <button class="btn btn-test" @onclick="GenerateTestData" disabled="@isGenerating">
+            @if (isGenerating)
+            {
+                <span class="spinner-small"></span>
+                <span>Generating...</span>
+            }
+            else
+            {
+                <span>🧪 Generate Test Data</span>
+            }
+        </button>
+    </div>
+</div>
+
+@if (testDataMessage != null)
+{
+    <div class="alert @(testDataSuccess ? "alert-success" : "alert-error")">
+        @testDataMessage
+    </div>
+}
 
 @if (isLoading)
 {
@@ -66,6 +88,9 @@ else
     private InspectionStatistics? stats;
     private bool isLoading = true;
     private string? errorMessage;
+    private bool isGenerating = false;
+    private string? testDataMessage;
+    private bool testDataSuccess = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -87,6 +112,32 @@ else
         finally
         {
             isLoading = false;
+        }
+    }
+
+    private async Task GenerateTestData()
+    {
+        try
+        {
+            isGenerating = true;
+            testDataMessage = null;
+            StateHasChanged();
+
+            var count = await InspectionService.GenerateTestDataAsync(50);
+            testDataSuccess = true;
+            testDataMessage = $"Successfully generated {count} test inspection records.";
+
+            // Reload statistics
+            await LoadStatistics();
+        }
+        catch (Exception ex)
+        {
+            testDataSuccess = false;
+            testDataMessage = $"Failed to generate test data: {ex.Message}";
+        }
+        finally
+        {
+            isGenerating = false;
         }
     }
 }
