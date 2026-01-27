@@ -1,6 +1,8 @@
 using ErfxWebServer.Data;
 using ErfxWebServer.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.SignalR;
+using ErfxWebServer.Hubs;
 
 namespace ErfxWebServer.Services;
 
@@ -73,6 +75,14 @@ public interface IInspectionService
     /// <param name="count">생성할 데이터 수</param>
     /// <returns>생성된 데이터 수</returns>
     Task<int> GenerateTestDataAsync(int count = 50);
+
+    /// <summary>
+    /// 단일 검사 결과를 시뮬레이션하여 SignalR로 브로드캐스트
+    /// </summary>
+    /// <param name="forceResult">null이면 85% OK/15% NG 랜덤, true면 강제 OK, false면 강제 NG</param>
+    /// <param name="saveToDb">true면 DB에도 저장</param>
+    /// <returns>생성된 검사 결과</returns>
+    Task<BoxInspectionResult> SimulateInspectionAsync(bool? forceResult = null, bool saveToDb = false);
 }
 
 /// <summary>
@@ -81,10 +91,12 @@ public interface IInspectionService
 public class InspectionService : IInspectionService
 {
     private readonly InspectionDbContext _context;
+    private readonly IHubContext<InspectionHub> _hubContext;
 
-    public InspectionService(InspectionDbContext context)
+    public InspectionService(InspectionDbContext context, IHubContext<InspectionHub> hubContext)
     {
         _context = context;
+        _hubContext = hubContext;
     }
 
     /// <summary>
@@ -299,5 +311,178 @@ public class InspectionService : IInspectionService
         await _context.SaveChangesAsync();
 
         return testData.Count;
+    }
+
+    /// <summary>
+    /// 단일 검사 결과를 시뮬레이션하여 SignalR로 브로드캐스트
+    /// 실제 SPAO EPC/SKU 형식 사용
+    /// 바코드 형식: 매장코드,region,송장번호,전체수량,SKU1,수량1,SKU2,수량2,...
+    /// </summary>
+    public async Task<BoxInspectionResult> SimulateInspectionAsync(bool? forceResult = null, bool saveToDb = false)
+    {
+        var random = new Random();
+
+        // 실제 SPAO SKU 형식 (16자리)
+        // 형식: [브랜드2][아이템2][연도1][시즌1][월1][복종1][디자인2][색상2][사이즈3][차수2]
+        // 예: SPJDF4TKG1391600
+        var realSkus = new[]
+        {
+            "SPJDF4TKG1391600",  // 청바지
+            "SPTHE37G5119075",   // 티셔츠
+            "SPCKE12W02390900",  // 체크셔츠
+            "SPBNE25W01100950",  // 블라우스
+            "SPRWE25C04101050",  // 원피스
+            "SPMTE31W02390800",  // 맨투맨
+            "SPJKE42W01560900",  // 자켓
+            "SPPTE21W02390750"   // 팬츠
+        };
+
+        // 실제 SPAO EPC 형식 (32자리 Hex): 850470001940434B3257303200700105
+        // 각 SKU에 대응하는 EPC 베이스 (마지막 6자리는 시리얼)
+        var epcBases = new Dictionary<string, string>
+        {
+            ["SPJDF4TKG1391600"] = "850470001940434B32573032007001",
+            ["SPTHE37G5119075"] = "850180000281544837473531005008",
+            ["SPCKE12W02390900"] = "850470002544434B32573032007002",
+            ["SPBNE25W01100950"] = "850280000129424E35573031014015",
+            ["SPRWE25C04101050"] = "850270002819527535433034014023",
+            ["SPMTE31W02390800"] = "850370002819544D32573032007002",
+            ["SPJKE42W01560900"] = "850480001234544A32573031005001",
+            ["SPPTE21W02390750"] = "850270003456545032573032009001"
+        };
+
+        // 실제 매장코드 예시
+        var storeCodes = new[] { "AELS", "BSHN", "CSWD", "DKRG", "EJNP" };
+
+        // OK/NG 결정
+        var isOk = forceResult ?? (random.NextDouble() > 0.15);
+
+        // 송장번호: 13자리 숫자 (실제 형식)
+        var invoiceNumber = $"{random.NextInt64(1000000000000, 9999999999999)}";
+        var storeCode = storeCodes[random.Next(storeCodes.Length)];
+        var region = random.Next(1, 4).ToString();
+
+        var expectedItems = new Dictionary<string, int>();
+        var actualItems = new Dictionary<string, int>();
+        var differences = new List<SkuDifference>();
+        var epcSkuPairs = new List<EpcSkuPair>();
+
+        // SKU 선택 (3~5개로 늘려서 일부 OK/일부 NG 시연)
+        var usedSkus = realSkus.OrderBy(_ => random.Next()).Take(random.Next(3, 6)).ToList();
+
+        // NG일 경우, 어떤 SKU들이 불일치할지 미리 결정 (일부만 NG)
+        var ngSkuIndices = new HashSet<int>();
+        if (!isOk)
+        {
+            // 최소 1개, 최대 절반+1개 SKU가 NG
+            var ngCount = random.Next(1, Math.Max(2, usedSkus.Count / 2 + 1));
+            while (ngSkuIndices.Count < ngCount)
+            {
+                ngSkuIndices.Add(random.Next(usedSkus.Count));
+            }
+        }
+
+        for (int i = 0; i < usedSkus.Count; i++)
+        {
+            var sku = usedSkus[i];
+            var expected = random.Next(2, 6);
+            int actual;
+
+            if (isOk)
+            {
+                // OK: 모든 SKU 일치
+                actual = expected;
+            }
+            else if (ngSkuIndices.Contains(i))
+            {
+                // NG SKU: 불일치 (반드시 차이 발생)
+                var diff = random.Next(1, 3) * (random.Next(2) == 0 ? 1 : -1); // +1~2 또는 -1~-2
+                actual = Math.Max(0, expected + diff);
+                if (actual == expected) actual = expected - 1; // 여전히 같으면 강제로 1 감소
+                if (actual < 0) actual = 0;
+            }
+            else
+            {
+                // OK SKU: 일치
+                actual = expected;
+            }
+
+            // SKU 비교는 15자리 (차수 제외)
+            var skuKey = sku.Length >= 15 ? sku.Substring(0, 15) : sku;
+            expectedItems[skuKey] = expected;
+            actualItems[skuKey] = actual;
+
+            if (expected != actual)
+            {
+                differences.Add(new SkuDifference
+                {
+                    Sku = skuKey,
+                    Expected = expected,
+                    Actual = actual
+                });
+            }
+
+            // 실제 EPC 형식으로 태그 생성
+            var epcBase = epcBases.GetValueOrDefault(sku, "8504700000000000000000000000");
+            for (int j = 0; j < actual; j++)
+            {
+                // EPC 베이스 + 2자리 시리얼 = 32자리
+                var serialSuffix = $"{random.Next(0, 99):D2}";
+                var fullEpc = (epcBase + serialSuffix).PadRight(32, '0').Substring(0, 32);
+
+                epcSkuPairs.Add(new EpcSkuPair
+                {
+                    Epc = fullEpc,
+                    Sku = skuKey
+                });
+            }
+        }
+
+        // 실제 바코드 형식: 매장코드,region,송장번호,전체수량,SKU1,수량1,SKU2,수량2,...
+        // 예: AELS,1,5044252138537,19,SPJDF4TKG1391600,1,...
+        var calculatedTotal = expectedItems.Values.Sum();
+
+        // 10% 확률로 바코드 총수량 불일치 시뮬레이션 (송장 프로그램 버그)
+        var hasMismatch = random.NextDouble() < 0.1;
+        var declaredTotal = hasMismatch ? calculatedTotal + random.Next(1, 4) : calculatedTotal;
+        var warningMessage = hasMismatch
+            ? $"수량 불일치: 바코드 선언({declaredTotal}) ≠ SKU 합계({calculatedTotal}). SKU 합계를 사용합니다."
+            : null;
+
+        var skuQuantityPairs = string.Join(",", expectedItems.Select(kv => $"{kv.Key},{kv.Value}"));
+        var barcodeRaw = $"{storeCode},{region},{invoiceNumber},{declaredTotal},{skuQuantityPairs}";
+
+        var result = new BoxInspectionResult
+        {
+            CorrelationId = $"BOX_{DateTime.UtcNow:yyyyMMdd}_{random.Next(1, 9999):D4}",
+            StoreCode = storeCode,
+            Region = region,
+            InvoiceNumber = invoiceNumber,
+            BarcodeRaw = barcodeRaw,
+            InspectedAtUtc = DateTime.UtcNow,
+            IsOk = isOk,
+            ExpectedTotal = calculatedTotal,
+            DeclaredTotal = declaredTotal,
+            ActualTotal = actualItems.Values.Sum(),
+            ElapsedMs = random.Next(80, 500),
+            ExpectedItems = expectedItems,
+            ActualItems = actualItems,
+            Differences = differences,
+            EpcSkuPairs = epcSkuPairs,
+            FailedEpcCount = isOk ? 0 : random.Next(0, 2),
+            WarningMessage = warningMessage
+        };
+
+        // SignalR 브로드캐스트
+        await _hubContext.Clients.All.SendAsync("InspectionResult", result);
+
+        // 선택적 DB 저장
+        if (saveToDb)
+        {
+            _context.Inspections.Add(result);
+            await _context.SaveChangesAsync();
+        }
+
+        return result;
     }
 }

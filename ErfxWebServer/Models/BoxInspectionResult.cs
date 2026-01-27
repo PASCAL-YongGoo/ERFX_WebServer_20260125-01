@@ -48,6 +48,12 @@ public class BoxInspectionResult
     [JsonPropertyName("correlationId")]
     public string CorrelationId { get; set; } = string.Empty;
 
+    [JsonPropertyName("storeCode")]
+    public string? StoreCode { get; set; }
+
+    [JsonPropertyName("region")]
+    public string? Region { get; set; }
+
     [JsonPropertyName("invoiceNumber")]
     public string? InvoiceNumber { get; set; }
 
@@ -69,6 +75,9 @@ public class BoxInspectionResult
 
     [JsonPropertyName("expectedTotal")]
     public int ExpectedTotal { get; set; }
+
+    [JsonPropertyName("declaredTotal")]
+    public int DeclaredTotal { get; set; }
 
     [JsonPropertyName("actualTotal")]
     public int ActualTotal { get; set; }
@@ -101,6 +110,14 @@ public class BoxInspectionResult
 
     [JsonPropertyName("errorMessage")]
     public string? ErrorMessage { get; set; }
+
+    [JsonPropertyName("warningMessage")]
+    public string? WarningMessage { get; set; }
+
+    /// <summary>
+    /// 경고 존재 여부
+    /// </summary>
+    public bool HasWarning => !string.IsNullOrEmpty(WarningMessage);
 
     #endregion
 
