@@ -23,13 +23,12 @@ package-lock.json
 
 # IDE
 .idea/
+.vs/
 *.swp
 *.swo
 
-# Sisyphus temporary files (keep plans/, exclude temporary notes)
-.sisyphus/notepads/
-.sisyphus/progress.txt
-.sisyphus/prd.json
+# Sisyphus temporary files
+.sisyphus/
 
 # Local settings (user-specific, do not commit)
 .claude/
